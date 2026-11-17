@@ -139,8 +139,6 @@ button{font-family:inherit;font-size:14px;cursor:pointer}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:14px;box-shadow:0 8px 24px rgba(1,4,9,.7);transform:translateY(100px);opacity:0;transition:all .3s;z-index:2000;max-width:360px}
 .toast.show{transform:translateY(0);opacity:1}
 
-/* Profile */
-.profile-grid{display:grid;grid-template-columns:296px 1fr;gap:32px}
 .profile-banner{width:100%;height:180px;background:linear-gradient(135deg,#2f81f7,#a371f7);border-radius:var(--radius);position:relative;overflow:hidden;margin-bottom:16px}
 .profile-banner img{width:100%;height:100%;object-fit:cover}
 .banner-edit{position:absolute;bottom:8px;right:8px;background:rgba(1,4,9,.7);border:1px solid var(--border);color:var(--fg);padding:4px 10px;border-radius:var(--radius);font-size:12px;cursor:pointer}
@@ -171,7 +169,6 @@ button{font-family:inherit;font-size:14px;cursor:pointer}
   .layout{grid-template-columns:1fr}
   .sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--border)}
   .repo-body{grid-template-columns:1fr}
-  .profile-grid{grid-template-columns:1fr}
   .main{padding:16px}
   .tree-row{grid-template-columns:1fr 40px}
   .tree-row .commit-msg,.tree-row .commit-time{display:none}
@@ -252,7 +249,7 @@ window.addEventListener('error', e => {
 try {
   const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js");
   const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js");
-  const { getFirestore, collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc, getDocs, getDoc, setDoc, updateDoc, orderBy } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js");
+  const { getFirestore, collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc, getDocs, getDoc, setDoc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js");
   const { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, getBlob } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js");
 
   const firebaseConfig = {
@@ -273,21 +270,20 @@ try {
   const state = {
     user:null, profile:null, repos:[], currentRepo:null, currentTab:'code',
     currentFile:null, view:'repo', searchFileQuery:'',
-    unsubscribeRepos:null, unsubscribeFiles:null, unsubscribeUserDoc:null
+    unsubscribeRepos:null, unsubscribeFiles:null, unsubscribeUserDoc:null,
+    cachedFiles:[]
   };
 
   function toast(msg){
     const el = $('toast'); el.textContent = msg; el.classList.add('show');
-    clearTimeout(el._timer); el._timer = setTimeout(()=>el.classList.remove('show'),3000);
+    clearTimeout(el._timer); el._timer = setTimeout(()=>el.classList.remove('show'),3500);
   }
   window.toast = toast;
   const escapeHtml = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   window.escapeHtml = escapeHtml;
   const usernameToEmail = u => u.toLowerCase().replace(/[^a-z0-9_]/g,'') + '@filehub.local';
 
-  /* ===== ADMIN CHECK ===== */
   function isAdminUser(){
-    // Владелец: любой email с доменом @forst.my
     return state.user && typeof state.user.email === 'string' && state.user.email.toLowerCase().endsWith('@forst.my');
   }
   window.isAdminUser = isAdminUser;
@@ -387,10 +383,10 @@ try {
     state.user = user;
     if(user){ showApp(); loadUserDoc(user.uid); loadRepos(); }
     else {
-      if(state.unsubscribeRepos) state.unsubscribeRepos();
-      if(state.unsubscribeFiles) state.unsubscribeFiles();
-      if(state.unsubscribeUserDoc) state.unsubscribeUserDoc();
-      state.repos=[]; state.currentRepo=null; state.profile=null;
+      if(state.unsubscribeRepos) { state.unsubscribeRepos(); state.unsubscribeRepos=null; }
+      if(state.unsubscribeFiles) { state.unsubscribeFiles(); state.unsubscribeFiles=null; }
+      if(state.unsubscribeUserDoc) { state.unsubscribeUserDoc(); state.unsubscribeUserDoc=null; }
+      state.repos=[]; state.currentRepo=null; state.profile=null; state.cachedFiles=[];
       showAuthScreen();
     }
   });
@@ -403,7 +399,7 @@ try {
       updateHeaderAvatar();
       if(state.view==='profile') renderProfile();
       if(state.view==='settings') renderSettings();
-    });
+    }, err => { console.error('userDoc:', err); });
   }
 
   function updateHeaderAvatar(){
@@ -422,15 +418,23 @@ try {
   /* ===== REPOS ===== */
   function loadRepos(){
     if(state.unsubscribeRepos) state.unsubscribeRepos();
-    state.unsubscribeRepos = onSnapshot(query(collection(db,'repos'), where('owner','==',state.user.uid)), snap => {
+    const q = query(collection(db,'repos'), where('owner','==',state.user.uid));
+    state.unsubscribeRepos = onSnapshot(q, snap => {
       state.repos = [];
       snap.forEach(d => state.repos.push({ id:d.id, ...d.data() }));
-      state.repos.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      state.repos.sort((a,b) => {
+        const t1 = a.createdAt?.seconds || 0;
+        const t2 = b.createdAt?.seconds || 0;
+        return t2 - t1;
+      });
       if(!state.currentRepo && state.repos.length) state.currentRepo = state.repos[0];
       else if(state.currentRepo) state.currentRepo = state.repos.find(r => r.id === state.currentRepo.id) || state.repos[0] || null;
       renderSidebar();
       if(state.view === 'repo') renderView();
       if(state.view === 'profile') renderProfile();
+    }, err => {
+      console.error('repos:', err);
+      toast('Ошибка загрузки репозиториев: ' + err.message);
     });
   }
 
@@ -454,6 +458,7 @@ try {
     setTimeout(() => $('newRepoName').focus(), 100);
   };
   window.closeModal = () => $('modalOverlay').classList.remove('show');
+
   window.createRepo = async function(){
     const name = $('newRepoName').value.trim();
     const desc = $('newRepoDesc').value.trim();
@@ -462,16 +467,38 @@ try {
     if(!/^[a-zA-Z0-9._-]+$/.test(name)){ toast('Только буквы, цифры, ., -, _'); return; }
     if(state.repos.some(r => r.name.toLowerCase() === name.toLowerCase())){ toast('Уже существует'); return; }
     try {
-      await addDoc(collection(db,'repos'), {
+      const ref_ = await addDoc(collection(db,'repos'), {
         owner: state.user.uid,
         ownerUsername: state.profile?.username || state.user.email.split('@')[0],
+        ownerAdmin: isAdminUser(),
         name, desc: desc || '', lang,
         branch:'main', stars:0, forks:0, topics:[],
         createdAt: serverTimestamp()
       });
+      // Локально добавляем сразу, чтобы UI обновился мгновенно
+      const newRepo = {
+        id: ref_.id, owner: state.user.uid,
+        ownerUsername: state.profile?.username || state.user.email.split('@')[0],
+        ownerAdmin: isAdminUser(),
+        name, desc: desc || '', lang,
+        branch:'main', stars:0, forks:0, topics:[],
+        createdAt: { seconds: Math.floor(Date.now()/1000) }
+      };
+      state.repos.unshift(newRepo);
+      state.currentRepo = newRepo;
+      state.currentTab = 'code';
+      state.view = 'repo';
+      state.currentFile = null;
       closeModal();
+      renderSidebar();
+      renderView();
       toast('Создан: ' + name);
-    } catch(e){ toast(e.message); }
+      // И перезапускаем слушатель для синхронизации с сервером
+      setTimeout(loadRepos, 500);
+    } catch(e){
+      console.error(e);
+      toast('Ошибка: ' + (e.message || e.code));
+    }
   };
 
   window.selectRepo = function(id){
@@ -541,14 +568,13 @@ try {
     });
     let content = state.currentTab === 'code' ? renderCodeTab(repo) : renderEmptyTab();
     const owner = repo.ownerUsername || state.profile?.username || 'user';
-    const ownerIsAdmin = repo.ownerAdmin === true;
     $('mainContent').innerHTML = `
       <div class="repo-header">
         <h1 class="repo-title">
           <span class="owner">${escapeHtml(owner)}</span><span class="slash">/</span>
           <span class="name">${escapeHtml(repo.name)}</span>
           <span class="badge">Public</span>
-          ${ownerIsAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}
+          ${repo.ownerAdmin ? '<span class="admin-badge">ADMIN</span>' : ''}
         </h1>
         <div class="repo-actions"><button class="btn btn-danger" onclick="deleteRepo()">🗑 Удалить</button></div>
       </div>
@@ -572,7 +598,7 @@ try {
       <hr><h4>Язык</h4>
       <div class="about-link"><span class="dot" style="background:#f1e05a"></span>${escapeHtml(repo.lang||'Other')}</div>
       <hr><h4>Владелец</h4>
-      <div class="about-link">👤 ${escapeHtml(repo.ownerUsername||'you')}</div>
+      <div class="about-link">👤 ${escapeHtml(repo.ownerUsername||'you')}${repo.ownerAdmin ? ' <span class="admin-badge">ADMIN</span>' : ''}</div>
       <hr><h4>Ветка</h4>
       <div class="about-link">🌿 ${escapeHtml(repo.branch||'main')}</div>
     </aside>`;
@@ -608,17 +634,21 @@ try {
     </div>`;
   }
 
-  let cachedFiles = [];
   function loadFiles(repo){
     if(state.unsubscribeFiles) state.unsubscribeFiles();
-    const q = query(collection(db,'repos',repo.id,'files'), orderBy('createdAt','desc'));
+    const q = query(collection(db,'repos',repo.id,'files'));
     state.unsubscribeFiles = onSnapshot(q, snap => {
-      cachedFiles = []; snap.forEach(d => cachedFiles.push({ id:d.id, ...d.data() }));
+      state.cachedFiles = [];
+      snap.forEach(d => state.cachedFiles.push({ id:d.id, ...d.data() }));
+      state.cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
       renderFileTreeFromState();
-    }, () => {
+    }, err => {
+      console.error('files:', err);
+      // fallback без сортировки
       onSnapshot(collection(db,'repos',repo.id,'files'), s2 => {
-        cachedFiles = []; s2.forEach(d => cachedFiles.push({ id:d.id, ...d.data() }));
-        cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+        state.cachedFiles = [];
+        s2.forEach(d => state.cachedFiles.push({ id:d.id, ...d.data() }));
+        state.cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
         renderFileTreeFromState();
       });
     });
@@ -628,8 +658,8 @@ try {
     const el = $('fileTree');
     if(!el) return;
     const q = (state.searchFileQuery||'').toLowerCase();
-    const files = cachedFiles.filter(f => !q || f.name.toLowerCase().includes(q));
-    if(!cachedFiles.length){
+    const files = state.cachedFiles.filter(f => !q || f.name.toLowerCase().includes(q));
+    if(!state.cachedFiles.length){
       el.innerHTML = `<div class="empty" style="padding:32px 16px;"><h3>Пустой репозиторий</h3><p>Загрузите первый файл.</p></div>`;
       return;
     }
@@ -683,7 +713,7 @@ try {
       try {
         const task = uploadBytesResumable(ref(storage, path), file);
         await new Promise((res, rej) => {
-          let timeout = setTimeout(() => rej(new Error('Таймаут 60с — проверьте CORS на Storage')), 60000);
+          let timeout = setTimeout(() => rej(new Error('Таймаут 90с — проверьте CORS на Storage')), 90000);
           task.on('state_changed',
             s => { $('uploadProgress').style.width = (s.bytesTransferred/s.totalBytes)*100 + '%'; },
             e => { clearTimeout(timeout); rej(e); },
@@ -711,11 +741,11 @@ try {
     const a = document.createElement('a'); a.href = url; a.download = name; a.target = '_blank'; a.click();
   };
   window.downloadRepoZip = async function(){
-    if(!cachedFiles.length){ toast('Нет файлов'); return; }
+    if(!state.cachedFiles.length){ toast('Нет файлов'); return; }
     toast('Упаковка ZIP...');
     try {
       const zip = new JSZip();
-      for(const f of cachedFiles){
+      for(const f of state.cachedFiles){
         try { const blob = await getBlob(ref(storage, f.path)); zip.file(f.name, blob); } catch(e){}
       }
       const content = await zip.generateAsync({ type:'blob' });
@@ -742,7 +772,7 @@ try {
   function renderFileViewer(repo, file){
     const lines = file.content.split('\n');
     const linesHtml = lines.map((l,i) =>
-      `<div class="code-line"><span class="code-num">${i+1}</span><span class="code-txt">${highlight(l, file.name)||' '}</span></div>`
+      `<div class="code-line"><span class="code-num">${i+1}</span><span class="code-txt">${escapeHtml(l)||' '}</span></div>`
     ).join('');
     return `<div class="repo-body">
       <div class="repo-content">
@@ -772,19 +802,6 @@ try {
       state.currentFile = null; toast('Удалён');
     } catch(e){ toast(e.message); }
   };
-
-  function highlight(code, filename){
-    const ext = (filename.split('.').pop()||'').toLowerCase();
-    let html = escapeHtml(code);
-    if(['js','json','ts','jsx','tsx'].includes(ext)){
-      html = html.replace(/(\/\/[^\n]*)/g,'<span class="tok-com" style="color:#8b949e">$1</span>')
-        .replace(/('[^']*'|"[^"]*"|`[^`]*`)/g,'<span style="color:#a5d6ff">$1</span>')
-        .replace(/\b(const|let|var|function|return|if|else|for|while|import|export|from|async|await|new|class|this)\b/g,'<span style="color:#ff7b72">$1</span>');
-    } else if(['md','markdown'].includes(ext)){
-      html = html.replace(/^(#{1,6} .*)$/gm,'<span style="color:#ff7b72">$1</span>');
-    }
-    return html;
-  }
 
   /* ===== PROFILE ===== */
   window.showProfile = function(){ closeDropdown(); state.view='profile'; state.currentFile=null; renderView(); };
@@ -822,7 +839,7 @@ try {
       : initials;
 
     $('mainContent').innerHTML = `
-      <div class="profile-grid" style="grid-template-columns:1fr;">
+      <div style="max-width:900px;">
         ${bannerHtml}
         <div class="profile-avatar-wrap">
           <div class="profile-avatar">${avatarInner}</div>
