@@ -1,0 +1,1018 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FileHub · GitHub style</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+:root{
+  --canvas:#0d1117; --canvas-subtle:#161b22; --canvas-inset:#010409;
+  --border:#30363d; --border-muted:#21262d;
+  --fg:#e6edf3; --fg-muted:#7d8590; --fg-subtle:#6e7681;
+  --accent:#2f81f7; --accent-emphasis:#1f6feb;
+  --success:#238636; --success-hover:#2ea043;
+  --danger:#da3633; --attention:#d29922;
+  --radius:6px;
+  --font:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans",Helvetica,Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--canvas);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+button{font-family:inherit;font-size:14px;cursor:pointer}
+
+#boot{padding:24px;text-align:center;color:var(--fg-muted);font-size:13px;}
+#boot .err{color:var(--danger);}
+
+.gh-header{background:var(--canvas-subtle);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+.gh-logo{width:32px;height:32px;fill:var(--fg);flex-shrink:0;cursor:pointer}
+.gh-search{flex:1;max-width:320px;background:var(--canvas);border:1px solid var(--border);border-radius:var(--radius);padding:5px 12px;color:var(--fg);font-size:14px;outline:none;transition:border-color .15s,box-shadow .15s}
+.gh-search:focus{border-color:var(--accent-emphasis);box-shadow:0 0 0 3px rgba(31,111,235,.3)}
+.gh-search::placeholder{color:var(--fg-muted)}
+.gh-nav{display:flex;align-items:center;gap:8px;margin-left:auto;position:relative}
+.gh-plus-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--success);color:#fff;font-weight:600;font-size:13px}
+.gh-plus-btn:hover{background:var(--success-hover)}
+.gh-plus-btn svg{width:14px;height:14px;fill:currentColor}
+.gh-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#2f81f7,#a371f7);display:flex;align-items:center;justify-content:center;font-weight:600;color:#fff;font-size:13px;border:1px solid var(--border);cursor:pointer;user-select:none}
+.gh-avatar:hover{opacity:.85}
+.dropdown-menu{position:absolute;top:44px;right:0;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);min-width:220px;box-shadow:0 8px 24px rgba(1,4,9,.7);padding:8px 0;display:none;z-index:200}
+.dropdown-menu.show{display:block}
+.dropdown-menu hr{border:none;border-top:1px solid var(--border);margin:6px 0}
+.dropdown-item{display:flex;align-items:center;gap:8px;padding:8px 16px;color:var(--fg);font-size:14px;cursor:pointer;background:none;border:none;width:100%;text-align:left}
+.dropdown-item:hover{background:rgba(177,186,196,.08);text-decoration:none}
+.dropdown-item.danger{color:var(--danger)}
+
+.layout{display:grid;grid-template-columns:296px 1fr;min-height:calc(100vh - 57px)}
+.sidebar{background:var(--canvas);border-right:1px solid var(--border);padding:16px;position:sticky;top:57px;height:calc(100vh - 57px);overflow-y:auto}
+.sidebar-title{font-size:12px;font-weight:600;color:var(--fg-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.sidebar-title button{background:var(--success);color:#fff;border:none;border-radius:var(--radius);padding:2px 10px;font-size:12px;font-weight:600}
+.sidebar-title button:hover{background:var(--success-hover)}
+.repo-item{padding:8px 10px;border-radius:var(--radius);cursor:pointer;margin-bottom:2px;display:flex;flex-direction:column;gap:2px;transition:background .1s}
+.repo-item:hover{background:rgba(177,186,196,.08)}
+.repo-item.active{background:rgba(47,129,247,.15);border-left:3px solid var(--accent);padding-left:7px}
+.repo-item-name{font-weight:600;font-size:13px;color:var(--fg);display:flex;align-items:center;gap:6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-item-name svg{width:14px;height:14px;fill:var(--fg-muted);flex-shrink:0}
+.repo-item-desc{font-size:12px;color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-item-meta{font-size:11px;color:var(--fg-subtle);display:flex;gap:10px;margin-top:2px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;margin-right:4px;vertical-align:middle}
+
+.main{padding:24px 32px;max-width:1280px;width:100%}
+.repo-header{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap;margin-bottom:24px}
+.repo-title{font-size:20px;font-weight:400;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.repo-title .owner{color:var(--accent);font-weight:400}
+.repo-title .slash{color:var(--fg-muted)}
+.repo-title .name{font-weight:600}
+.repo-title .badge{font-size:11px;padding:2px 7px;border:1px solid var(--border);border-radius:10px;color:var(--fg-muted);font-weight:500;margin-left:4px}
+.repo-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+.btn{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border);background:var(--canvas-subtle);color:var(--fg);font-weight:500;font-size:12px;line-height:20px;transition:background .1s,border-color .1s}
+.btn:hover{background:#30363d;border-color:#8b949e}
+.btn svg{width:14px;height:14px;fill:currentColor}
+.btn-primary{background:var(--success);border-color:rgba(240,246,252,.1);color:#fff}
+.btn-primary:hover{background:var(--success-hover)}
+.btn-danger{color:var(--danger)}
+.btn-danger:hover{border-color:var(--danger)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+
+.tabs{display:flex;gap:8px;border-bottom:1px solid var(--border);margin-bottom:16px;overflow-x:auto}
+.tab{padding:8px 8px 12px 8px;background:none;border:none;color:var(--fg);font-size:14px;display:flex;align-items:center;gap:6px;border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;font-weight:500}
+.tab:hover{background:rgba(177,186,196,.08);border-radius:var(--radius) var(--radius) 0 0}
+.tab.active{border-bottom-color:#f78166;font-weight:600}
+.tab svg{width:16px;height:16px;fill:var(--fg-muted)}
+
+.repo-body{display:grid;grid-template-columns:1fr 296px;gap:24px}
+.repo-content{min-width:0}
+.toolbar{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+.toolbar-spacer{flex:1}
+.branch-select{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;font-weight:500;color:var(--fg)}
+.branch-select svg{width:14px;height:14px;fill:var(--fg-muted)}
+
+.dropzone{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;color:var(--fg-muted);margin-bottom:16px;transition:all .15s;cursor:pointer}
+.dropzone.dragover{border-color:var(--accent);background:rgba(47,129,247,.08);color:var(--accent)}
+.dropzone svg{width:32px;height:32px;fill:currentColor;margin-bottom:8px}
+.dropzone p{font-size:13px}
+
+.file-tree{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--canvas-subtle)}
+.tree-row{display:grid;grid-template-columns:1fr 100px 120px 60px;align-items:center;padding:8px 16px;border-bottom:1px solid var(--border-muted);font-size:13px;cursor:pointer;gap:8px}
+.tree-row:last-child{border-bottom:none}
+.tree-row:hover{background:rgba(47,129,247,.08)}
+.tree-row .name{display:flex;align-items:center;gap:8px;min-width:0;overflow:hidden}
+.tree-row .name svg{width:16px;height:16px;flex-shrink:0}
+.tree-row .name span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.icon-folder{fill:#54aeff}
+.icon-file{fill:var(--fg-muted)}
+.icon-apk{fill:#3ddc84}
+.tree-row .commit-msg{color:var(--fg-muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.tree-row .commit-time{color:var(--fg-muted);font-size:12px;text-align:right}
+.tree-row .row-actions{display:flex;gap:4px;justify-content:flex-end}
+.row-actions button{background:none;border:none;color:var(--fg-muted);padding:2px 4px;border-radius:4px;font-size:12px}
+.row-actions button:hover{background:var(--border);color:var(--fg)}
+
+.file-view{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;background:var(--canvas)}
+.file-header{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;background:var(--canvas-subtle);border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px}
+.file-header .path{font-family:var(--mono);font-size:13px;font-weight:600}
+.code-view{font-family:var(--mono);font-size:12px;line-height:20px;overflow-x:auto;background:var(--canvas)}
+.code-line{display:flex;min-width:max-content}
+.code-line:hover{background:rgba(47,129,247,.05)}
+.code-num{color:var(--fg-subtle);width:50px;flex-shrink:0;text-align:right;padding-right:16px;padding-left:8px;user-select:none;border-right:1px solid var(--border-muted);background:var(--canvas-subtle)}
+.code-txt{padding-left:16px;padding-right:16px;white-space:pre;color:var(--fg)}
+.tok-kw{color:#ff7b72}.tok-str{color:#a5d6ff}.tok-num{color:#79c0ff}
+.tok-com{color:#8b949e}.tok-fn{color:#d2a8ff}.tok-tag{color:#7ee787}
+
+.about h3{font-size:16px;font-weight:600;margin-bottom:8px}
+.about p{font-size:14px;color:var(--fg-muted);margin-bottom:16px;line-height:1.5;white-space:pre-wrap}
+.about-link{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--fg-muted);margin-bottom:8px}
+.about hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+.about h4{font-size:14px;font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between}
+
+.empty{text-align:center;padding:48px 16px;color:var(--fg-muted)}
+.empty svg{width:48px;height:48px;fill:var(--fg-muted);margin-bottom:12px;opacity:.5}
+.empty h3{color:var(--fg);font-size:16px;font-weight:600;margin-bottom:4px}
+.empty p{font-size:14px;margin-bottom:16px}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(1,4,9,.8);display:none;align-items:center;justify-content:center;z-index:1000;padding:16px}
+.modal-overlay.show{display:flex}
+.modal{background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);max-width:600px;width:100%;max-height:90vh;overflow-y:auto;padding:24px}
+.modal h2{font-size:18px;font-weight:600;margin-bottom:16px}
+.modal label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;margin-top:12px}
+.modal input,.modal textarea,.modal select{width:100%;padding:6px 10px;background:var(--canvas);border:1px solid var(--border);border-radius:var(--radius);color:var(--fg);font-family:inherit;font-size:14px;outline:none}
+.modal input:focus,.modal textarea:focus,.modal select:focus{border-color:var(--accent-emphasis);box-shadow:0 0 0 3px rgba(31,111,235,.3)}
+.modal textarea{min-height:80px;resize:vertical}
+.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+
+.auth-box{background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:440px;margin:48px auto}
+.auth-box h2{margin-bottom:16px;font-size:16px;font-weight:600}
+.auth-box input{width:100%;padding:8px 12px;margin:6px 0;background:var(--canvas);border:1px solid var(--border);border-radius:var(--radius);color:var(--fg);font-family:inherit;font-size:14px;outline:none}
+.auth-box input:focus{border-color:var(--accent-emphasis);box-shadow:0 0 0 3px rgba(31,111,235,.3)}
+.auth-error{color:var(--danger);font-size:13px;margin-top:10px;min-height:20px}
+.auth-hint{color:var(--fg-muted);font-size:12px;margin-top:8px;line-height:1.4}
+.auth-success{color:var(--success);font-size:13px;margin-top:10px}
+
+.toast{position:fixed;bottom:24px;right:24px;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;font-size:14px;box-shadow:0 8px 24px rgba(1,4,9,.7);transform:translateY(100px);opacity:0;transition:all .3s;z-index:2000;max-width:360px}
+.toast.show{transform:translateY(0);opacity:1}
+
+.profile-grid{display:grid;grid-template-columns:296px 1fr;gap:32px}
+.profile-avatar{width:100%;aspect-ratio:1;border-radius:50%;background:linear-gradient(135deg,#2f81f7,#a371f7);display:flex;align-items:center;justify-content:center;font-size:80px;font-weight:600;color:#fff;max-width:296px}
+.profile-name{font-size:24px;font-weight:600;margin:16px 0 4px}
+.profile-login{color:var(--fg-muted);font-size:20px;font-weight:300;margin-bottom:16px}
+.profile-bio{font-size:14px;margin-bottom:16px;line-height:1.5;white-space:pre-wrap}
+.profile-meta{font-size:13px;color:var(--fg-muted);display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.profile-meta div{display:flex;align-items:center;gap:6px}
+.profile-stats{display:flex;gap:6px;flex-wrap:wrap;font-size:14px;color:var(--fg-muted);margin-bottom:16px}
+.profile-stats strong{color:var(--fg);font-weight:600}
+.profile-join{font-size:13px;color:var(--fg-muted);display:flex;align-items:center;gap:6px}
+.repo-card{border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.repo-card .name{font-size:16px;font-weight:600;color:var(--accent);margin-bottom:6px;display:inline-block}
+.repo-card .desc{color:var(--fg-muted);font-size:13px;margin-bottom:10px}
+.repo-card .meta{display:flex;gap:16px;font-size:12px;color:var(--fg-muted);flex-wrap:wrap}
+
+.settings-section{border:1px solid var(--border);border-radius:var(--radius);margin-bottom:16px;overflow:hidden}
+.settings-section h3{padding:12px 16px;background:var(--canvas-subtle);border-bottom:1px solid var(--border);font-size:14px;font-weight:600}
+.settings-section .body{padding:16px}
+.settings-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border-muted);gap:16px;flex-wrap:wrap}
+.settings-row:last-child{border-bottom:none}
+.settings-row .label{font-weight:500}
+.settings-row .hint{font-size:12px;color:var(--fg-muted);margin-top:2px}
+.settings-input{width:100%;padding:6px 10px;background:var(--canvas);border:1px solid var(--border);border-radius:var(--radius);color:var(--fg);font-family:inherit;font-size:14px;outline:none;margin-top:4px}
+.settings-input:focus{border-color:var(--accent-emphasis)}
+
+@media(max-width:900px){
+  .layout{grid-template-columns:1fr}
+  .sidebar{position:static;height:auto;border-right:none;border-bottom:1px solid var(--border)}
+  .repo-body{grid-template-columns:1fr}
+  .profile-grid{grid-template-columns:1fr}
+  .main{padding:16px}
+  .gh-search{max-width:160px}
+  .tree-row{grid-template-columns:1fr 40px}
+  .tree-row .commit-msg,.tree-row .commit-time{display:none}
+}
+</style>
+</head>
+<body>
+
+<div id="boot">Инициализация...</div>
+
+<header class="gh-header" style="display:none;" id="header">
+  <svg class="gh-logo" viewBox="0 0 16 16" onclick="showHome()"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+  <input class="gh-search" type="text" placeholder="Search repositories" id="searchInput">
+  <nav class="gh-nav">
+    <button class="gh-plus-btn" onclick="openNewRepoModal()" title="New repository">
+      <svg viewBox="0 0 16 16"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0zM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0zm6.25-3.25a.75.75 0 0 1 1.5 0v2.5h2.5a.75.75 0 0 1 0 1.5h-2.5v2.5a.75.75 0 0 1-1.5 0v-2.5h-2.5a.75.75 0 0 1 0-1.5h2.5v-2.5z"/></svg>
+      <span>New repository</span>
+    </button>
+    <div class="gh-avatar" id="headerAvatar" onclick="toggleDropdown()">?</div>
+    <div class="dropdown-menu" id="dropdownMenu">
+      <button class="dropdown-item" onclick="showProfile()">👤 Your profile</button>
+      <button class="dropdown-item" onclick="showProfile()">📚 Your repositories</button>
+      <hr>
+      <button class="dropdown-item" onclick="showSettings()">⚙ Settings</button>
+      <hr>
+      <button class="dropdown-item" id="dropdownAuthBtn" onclick="handleDropdownAuth()">🔑 Войти</button>
+      <button class="dropdown-item danger" id="dropdownLogoutBtn" style="display:none;" onclick="doLogout()">↪ Sign out</button>
+    </div>
+  </nav>
+</header>
+
+<div class="layout" id="layout" style="display:none;">
+  <aside class="sidebar">
+    <div class="sidebar-title">
+      <span>Repositories</span>
+      <button onclick="openNewRepoModal()">New</button>
+    </div>
+    <div id="repoList"></div>
+  </aside>
+  <main class="main" id="mainContent"></main>
+</div>
+
+<div id="authWrapper" style="display:none;">
+  <div class="auth-box">
+    <h2>Вход / Регистрация</h2>
+    <div style="display:flex;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--border);">
+      <button class="tab active" id="loginTabBtn" onclick="switchAuthTab('login')" style="flex:1;justify-content:center;">Вход</button>
+      <button class="tab" id="signupTabBtn" onclick="switchAuthTab('signup')" style="flex:1;justify-content:center;">Регистрация</button>
+    </div>
+
+    <div id="loginForm">
+      <label style="font-size:13px;font-weight:600;">Username или Email</label>
+      <input type="text" id="loginUsername" placeholder="username или user@mail.com" autocomplete="username">
+      <label style="font-size:13px;font-weight:600;">Пароль</label>
+      <input type="password" id="loginPassword" placeholder="Пароль" autocomplete="current-password">
+      <button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center;" onclick="doLogin()">Войти</button>
+    </div>
+
+    <div id="signupForm" style="display:none;">
+      <label style="font-size:13px;font-weight:600;">Username</label>
+      <input type="text" id="signupUsername" placeholder="только буквы, цифры, _" autocomplete="username">
+      <label style="font-size:13px;font-weight:600;">Email</label>
+      <input type="email" id="signupEmail" placeholder="you@example.com" autocomplete="email">
+      <label style="font-size:13px;font-weight:600;">Пароль</label>
+      <input type="password" id="signupPassword" placeholder="Мин. 6 символов" autocomplete="new-password">
+      <button class="btn btn-primary" style="width:100%;margin-top:12px;justify-content:center;" onclick="doSignup()">Зарегистрироваться</button>
+      <div class="auth-hint">Если email уже занят, аккаунт создастся только с username — вход будет по username.</div>
+    </div>
+
+    <div class="auth-error" id="authError"></div>
+    <div class="auth-success" id="authSuccess"></div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// Ловим ошибки до Firebase, чтобы не было «белого экрана»
+window.addEventListener('error', e => {
+  const b = document.getElementById('boot');
+  if(b){ b.innerHTML = '<span class="err">Ошибка: ' + (e.message || 'unknown') + '</span>'; b.style.display='block'; }
+  console.error(e.error || e.message);
+});
+
+try {
+  const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js");
+  const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js");
+  const { getFirestore, collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc, getDocs, getDoc, setDoc, updateDoc, orderBy } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js");
+  const { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, getBlob } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js");
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCJ0ENFd9IYG3DOqqpoyxGmjKkv4QpwNmk",
+    authDomain: "filehub-65d0f.firebaseapp.com",
+    projectId: "filehub-65d0f",
+    storageBucket: "filehub-65d0f.firebasestorage.app",
+    messagingSenderId: "586339361925",
+    appId: "1:586339361925:web:abb63a1d9a0b75921775ec",
+    measurementId: "G-CB4J5NGMHQ"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  const storage = getStorage(app);
+
+  const $ = id => document.getElementById(id);
+
+  const state = {
+    user: null, profile: null, repos: [], currentRepo: null, currentTab: 'code',
+    currentFile: null, view: 'repo', searchFileQuery: '',
+    unsubscribeRepos: null, unsubscribeFiles: null, unsubscribeUserDoc: null
+  };
+
+  function toast(msg){
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(el._timer);
+    el._timer = setTimeout(() => el.classList.remove('show'), 3000);
+  }
+  window.toast = toast;
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  window.escapeHtml = escapeHtml;
+
+  function usernameToEmail(u){
+    return u.toLowerCase().replace(/[^a-z0-9_]/g, '') + '@filehub.local';
+  }
+
+  window.switchAuthTab = function(which){
+    if(which === 'login'){
+      $('loginForm').style.display = 'block';
+      $('signupForm').style.display = 'none';
+      $('loginTabBtn').classList.add('active');
+      $('signupTabBtn').classList.remove('active');
+    } else {
+      $('loginForm').style.display = 'none';
+      $('signupForm').style.display = 'block';
+      $('loginTabBtn').classList.remove('active');
+      $('signupTabBtn').classList.add('active');
+    }
+    $('authError').textContent = '';
+    $('authSuccess').textContent = '';
+  };
+
+  window.doLogin = async function(){
+    const input = $('loginUsername').value.trim();
+    const pass = $('loginPassword').value;
+    $('authError').textContent = '';
+    $('authSuccess').textContent = '';
+    if(!input || !pass){ $('authError').textContent = 'Заполните все поля'; return; }
+    let email = input;
+    if(!input.includes('@')){
+      try {
+        const q = query(collection(db, 'users'), where('username', '==', input.toLowerCase()));
+        const snap = await getDocs(q);
+        if(!snap.empty){
+          const data = snap.docs[0].data();
+          email = data.internalEmail ? usernameToEmail(input) : (data.email || usernameToEmail(input));
+        } else {
+          email = usernameToEmail(input);
+        }
+      } catch(e){ email = usernameToEmail(input); }
+    }
+    try { await signInWithEmailAndPassword(auth, email, pass); }
+    catch(e){ $('authError').textContent = translateError(e.code); }
+  };
+
+  window.doSignup = async function(){
+    const username = $('signupUsername').value.trim().toLowerCase();
+    const email = $('signupEmail').value.trim();
+    const pass = $('signupPassword').value;
+    $('authError').textContent = '';
+    $('authSuccess').textContent = '';
+    if(!username || !pass){ $('authError').textContent = 'Заполните поля'; return; }
+    if(!/^[a-z0-9_]{3,20}$/.test(username)){ $('authError').textContent = 'Username: 3–20, a-z 0-9 _'; return; }
+    if(pass.length < 6){ $('authError').textContent = 'Пароль минимум 6 символов'; return; }
+
+    try {
+      const q = query(collection(db, 'users'), where('username', '==', username));
+      const snap = await getDocs(q);
+      if(!snap.empty){ $('authError').textContent = 'Username уже занят'; return; }
+    } catch(e){}
+
+    let targetEmail = email || usernameToEmail(username);
+    let internalEmail = false;
+
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, targetEmail, pass);
+      await setDoc(doc(db, 'users', cred.user.uid), {
+        username, email: targetEmail, displayEmail: email || '',
+        internalEmail: false, bio: '', location: '', website: '', company: '',
+        createdAt: serverTimestamp()
+      });
+    } catch(e){
+      if(e.code === 'auth/email-already-in-use' && email){
+        internalEmail = true;
+        targetEmail = usernameToEmail(username);
+        try {
+          const cred = await createUserWithEmailAndPassword(auth, targetEmail, pass);
+          await setDoc(doc(db, 'users', cred.user.uid), {
+            username, email: targetEmail, displayEmail: email,
+            internalEmail: true, bio: '', location: '', website: '', company: '',
+            createdAt: serverTimestamp()
+          });
+          $('authSuccess').textContent = 'Email был занят — аккаунт по username. Вход: ' + username;
+        } catch(e2){ $('authError').textContent = translateError(e2.code); }
+      } else {
+        $('authError').textContent = translateError(e.code);
+      }
+    }
+  };
+
+  window.doLogout = async function(){
+    if(!confirm('Выйти?')) return;
+    closeDropdown();
+    await signOut(auth);
+  };
+
+  window.handleDropdownAuth = function(){
+    closeDropdown();
+    if(state.user){
+      // уже вошли, но кнопка Auth — скрыть профиль? Просто напомним
+      toast('Вы уже вошли');
+    } else {
+      showAuthScreen();
+    }
+  };
+
+  function translateError(code){
+    const map = {
+      'auth/invalid-email': 'Неверный email',
+      'auth/user-not-found': 'Пользователь не найден',
+      'auth/wrong-password': 'Неверный пароль',
+      'auth/invalid-credential': 'Неверные данные',
+      'auth/email-already-in-use': 'Email уже используется',
+      'auth/weak-password': 'Пароль слишком слабый',
+      'auth/too-many-requests': 'Слишком много попыток'
+    };
+    return map[code] || code;
+  }
+
+  function showAuthScreen(){
+    $('header').style.display = 'flex';
+    $('layout').style.display = 'none';
+    $('authWrapper').style.display = 'block';
+    $('boot').style.display = 'none';
+    $('headerAvatar').textContent = '?';
+    $('dropdownAuthBtn').style.display = 'flex';
+    $('dropdownLogoutBtn').style.display = 'none';
+  }
+  function showApp(){
+    $('header').style.display = 'flex';
+    $('layout').style.display = 'grid';
+    $('authWrapper').style.display = 'none';
+    $('boot').style.display = 'none';
+    $('dropdownAuthBtn').style.display = 'none';
+    $('dropdownLogoutBtn').style.display = 'flex';
+  }
+  window.showAuthScreen = showAuthScreen;
+
+  onAuthStateChanged(auth, (user) => {
+    state.user = user;
+    if(user){
+      showApp();
+      loadUserDoc(user.uid);
+      loadRepos();
+    } else {
+      if(state.unsubscribeRepos) state.unsubscribeRepos();
+      if(state.unsubscribeFiles) state.unsubscribeFiles();
+      if(state.unsubscribeUserDoc) state.unsubscribeUserDoc();
+      state.repos = []; state.currentRepo = null; state.profile = null;
+      showAuthScreen();
+    }
+  });
+
+  function loadUserDoc(uid){
+    if(state.unsubscribeUserDoc) state.unsubscribeUserDoc();
+    state.unsubscribeUserDoc = onSnapshot(doc(db, 'users', uid), d => {
+      if(d.exists()){
+        state.profile = d.data();
+        $('headerAvatar').textContent = (state.profile.username || '?').slice(0,2).toUpperCase();
+      } else {
+        state.profile = { username: state.user.email.split('@')[0], email: state.user.email };
+        $('headerAvatar').textContent = state.profile.username.slice(0,2).toUpperCase();
+      }
+      if(state.view === 'profile') renderProfile();
+      if(state.view === 'settings') renderSettings();
+    });
+  }
+
+  window.toggleDropdown = () => $('dropdownMenu').classList.toggle('show');
+  window.closeDropdown = () => $('dropdownMenu').classList.remove('show');
+  document.addEventListener('click', e => { if(!e.target.closest('.gh-nav')) closeDropdown(); });
+
+  function loadRepos(){
+    if(state.unsubscribeRepos) state.unsubscribeRepos();
+    const q = query(collection(db, 'repos'), where('owner', '==', state.user.uid));
+    state.unsubscribeRepos = onSnapshot(q, snap => {
+      state.repos = [];
+      snap.forEach(d => state.repos.push({ id: d.id, ...d.data() }));
+      state.repos.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+      if(!state.currentRepo && state.repos.length) state.currentRepo = state.repos[0];
+      else if(state.currentRepo) state.currentRepo = state.repos.find(r => r.id === state.currentRepo.id) || state.repos[0] || null;
+      renderSidebar();
+      if(state.view === 'repo') renderView();
+      if(state.view === 'profile') renderProfile();
+    });
+  }
+
+  window.openNewRepoModal = function(){
+    closeDropdown();
+    if(!state.user){ toast('Сначала войдите'); showAuthScreen(); return; }
+    $('modalContent').innerHTML = `
+      <h2>Новый репозиторий</h2>
+      <label>Имя</label>
+      <input id="newRepoName" placeholder="my-awesome-project" autocomplete="off">
+      <div class="auth-hint">только буквы, цифры, ., -, _</div>
+      <label>Описание</label>
+      <textarea id="newRepoDesc"></textarea>
+      <label>Язык</label>
+      <input id="newRepoLang" value="JavaScript">
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="createRepo()">Создать</button>
+      </div>
+    `;
+    $('modalOverlay').classList.add('show');
+    setTimeout(() => $('newRepoName').focus(), 100);
+  };
+  window.closeModal = () => $('modalOverlay').classList.remove('show');
+  window.createRepo = async function(){
+    const name = $('newRepoName').value.trim();
+    const desc = $('newRepoDesc').value.trim();
+    const lang = $('newRepoLang').value.trim() || 'Other';
+    if(!name){ toast('Введите имя'); return; }
+    if(!/^[a-zA-Z0-9._-]+$/.test(name)){ toast('Только буквы, цифры, ., -, _'); return; }
+    if(state.repos.some(r => r.name.toLowerCase() === name.toLowerCase())){ toast('Уже существует'); return; }
+    try {
+      await addDoc(collection(db, 'repos'), {
+        owner: state.user.uid,
+        ownerUsername: state.profile?.username || state.user.email.split('@')[0],
+        name, desc: desc || '', lang,
+        branch: 'main', stars: 0, forks: 0, topics: [],
+        createdAt: serverTimestamp()
+      });
+      closeModal();
+      toast('Репозиторий создан: ' + name);
+    } catch(e){ toast(e.message); }
+  };
+
+  window.selectRepo = function(id){
+    state.currentRepo = state.repos.find(r => r.id === id);
+    state.currentTab = 'code';
+    state.currentFile = null;
+    state.view = 'repo';
+    renderSidebar();
+    renderView();
+  };
+
+  window.deleteRepo = async function(){
+    if(!state.currentRepo || !confirm('Удалить репозиторий?')) return;
+    try {
+      const filesSnap = await getDocs(collection(db, 'repos', state.currentRepo.id, 'files'));
+      for(const f of filesSnap.docs){
+        const fd = f.data();
+        if(fd.path){ try { await deleteObject(ref(storage, fd.path)); } catch(e){} }
+        await deleteDoc(doc(db, 'repos', state.currentRepo.id, 'files', f.id));
+      }
+      await deleteDoc(doc(db, 'repos', state.currentRepo.id));
+      toast('Удалён');
+    } catch(e){ toast(e.message); }
+  };
+
+  function renderSidebar(){
+    const list = $('repoList');
+    list.innerHTML = '';
+    if(!state.repos.length){
+      list.innerHTML = `<div style="color:var(--fg-muted);font-size:13px;padding:8px 0;">Нет репозиториев. Нажмите «New».</div>`;
+      return;
+    }
+    const q = ($('searchInput').value || '').toLowerCase().trim();
+    state.repos.filter(r => !q || r.name.toLowerCase().includes(q) || (r.desc||'').toLowerCase().includes(q))
+      .forEach(repo => {
+        const div = document.createElement('div');
+        div.className = 'repo-item' + (state.currentRepo && repo.id === state.currentRepo.id ? ' active' : '');
+        div.innerHTML = `
+          <div class="repo-item-name">
+            <svg viewBox="0 0 16 16"><path d="M2 2.5A2.5 2.5 0 0 1 4.5 0h8.75a.75.75 0 0 1 .75.75v12.5a.75.75 0 0 1-.75.75h-2.5a.75.75 0 0 1 0-1.5h1.75v-2h-8a1 1 0 0 0-.714 1.7.75.75 0 1 1-1.072 1.05A2.495 2.495 0 0 1 2 11.5v-9z"/></svg>
+            ${escapeHtml(repo.name)}
+          </div>
+          <div class="repo-item-desc">${escapeHtml(repo.desc || 'Без описания')}</div>
+          <div class="repo-item-meta"><span><span class="dot" style="background:#f1e05a"></span>${escapeHtml(repo.lang||'Other')}</span></div>
+        `;
+        div.onclick = () => selectRepo(repo.id);
+        list.appendChild(div);
+      });
+  }
+
+  function renderView(){
+    if(state.view === 'profile'){ renderProfile(); return; }
+    if(state.view === 'settings'){ renderSettings(); return; }
+    if(!state.currentRepo){
+      $('mainContent').innerHTML = `<div class="empty">
+        <h3>Нет репозитория</h3><p>Создайте первый репозиторий.</p>
+        <button class="btn btn-primary" onclick="openNewRepoModal()">Новый репозиторий</button>
+      </div>`;
+      return;
+    }
+    const repo = state.currentRepo;
+    const tabs = [
+      { id: 'code', label: 'Code', icon: '<path d="M4.72 3.22a.75.75 0 0 1 1.06 1.06L2.06 8l3.72 3.72a.75.75 0 1 1-1.06 1.06L.47 8.53a.75.75 0 0 1 0-1.06l4.25-4.25zm6.56 0a.75.75 0 1 0-1.06 1.06L13.94 8l-3.72 3.72a.75.75 0 1 0 1.06 1.06l4.25-4.25a.75.75 0 0 0 0-1.06l-4.25-4.25z"/>' },
+      { id: 'issues', label: 'Issues', icon: '<path d="M8 9.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/>' },
+      { id: 'prs', label: 'Pull requests', icon: '<path d="M1.5 3.25a2.25 2.25 0 1 1 3 2.122v5.256a2.251 2.251 0 1 1-1.5 0V5.372A2.25 2.25 0 0 1 1.5 3.25z"/>' }
+    ];
+    let tabsHtml = '';
+    tabs.forEach(tb => {
+      tabsHtml += `<button class="tab${state.currentTab === tb.id ? ' active' : ''}" onclick="switchTab('${tb.id}')"><svg viewBox="0 0 16 16">${tb.icon}</svg>${tb.label}</button>`;
+    });
+    let content = state.currentTab === 'code' ? renderCodeTab(repo) : renderEmptyTab();
+    const owner = repo.ownerUsername || state.profile?.username || 'user';
+    $('mainContent').innerHTML = `
+      <div class="repo-header">
+        <h1 class="repo-title">
+          <span class="owner">${escapeHtml(owner)}</span><span class="slash">/</span>
+          <span class="name">${escapeHtml(repo.name)}</span>
+          <span class="badge">Public</span>
+        </h1>
+        <div class="repo-actions">
+          <button class="btn btn-danger" onclick="deleteRepo()">🗑 Удалить</button>
+        </div>
+      </div>
+      <div class="tabs">${tabsHtml}</div>
+      ${content}
+    `;
+    if(state.currentTab === 'code') loadFiles(repo);
+  }
+
+  function renderEmptyTab(){
+    return `<div class="repo-body"><div class="repo-content">
+      <div class="empty"><h3>Скоро</h3><p>Функция в разработке</p></div>
+    </div>${renderAbout()}</div>`;
+  }
+
+  function renderAbout(){
+    const repo = state.currentRepo;
+    if(!repo) return '';
+    return `<aside class="about">
+      <h3>О проекте</h3>
+      <p>${escapeHtml(repo.desc || 'Без описания')}</p>
+      <hr><h4>Язык</h4>
+      <div class="about-link"><span class="dot" style="background:#f1e05a"></span>${escapeHtml(repo.lang||'Other')}</div>
+      <hr><h4>Владелец</h4>
+      <div class="about-link">👤 ${escapeHtml(repo.ownerUsername||'you')}</div>
+      <hr><h4>Ветка</h4>
+      <div class="about-link">🌿 ${escapeHtml(repo.branch||'main')}</div>
+    </aside>`;
+  }
+
+  function renderCodeTab(repo){
+    if(state.currentFile) return renderFileViewer(repo, state.currentFile);
+    return `<div class="repo-body">
+      <div class="repo-content">
+        <div class="toolbar">
+          <div class="branch-select">
+            <svg viewBox="0 0 16 16"><path d="M11.75 2.5a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5z"/></svg>
+            ${escapeHtml(repo.branch||'main')}
+          </div>
+          <input class="gh-search" id="fileSearchInput" style="max-width:200px;" placeholder="Поиск файлов..." value="${escapeHtml(state.searchFileQuery)}" oninput="state.searchFileQuery=this.value; renderFileTreeFromState();">
+          <div class="toolbar-spacer"></div>
+          <input type="file" id="uploadInput" style="display:none;" multiple onchange="handleUpload(event)">
+          <input type="file" id="uploadFolderInput" style="display:none;" webkitdirectory multiple onchange="handleUpload(event)">
+          <button class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">⬆ Загрузить файлы</button>
+          <button class="btn" onclick="document.getElementById('uploadFolderInput').click()">📁 Папка</button>
+          <button class="btn" onclick="downloadRepoZip()">⬇ ZIP</button>
+        </div>
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('uploadInput').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">
+          <svg viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
+          <p>Перетащите файлы сюда или нажмите для выбора</p>
+        </div>
+        <div id="uploadProgressWrap" style="display:none;margin-bottom:12px;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;">
+          <div style="font-size:13px;margin-bottom:6px;" id="uploadStatus">Загрузка...</div>
+          <div style="background:var(--border);height:8px;border-radius:4px;overflow:hidden;">
+            <div id="uploadProgress" style="background:var(--success);height:100%;width:0%;transition:width .2s;"></div>
+          </div>
+        </div>
+        <div class="file-tree" id="fileTree"><div style="padding:24px;text-align:center;color:var(--fg-muted);font-size:13px;">Загрузка...</div></div>
+      </div>
+      ${renderAbout()}
+    </div>`;
+  }
+
+  let cachedFiles = [];
+  function loadFiles(repo){
+    if(state.unsubscribeFiles) state.unsubscribeFiles();
+    const q = query(collection(db, 'repos', repo.id, 'files'), orderBy('createdAt', 'desc'));
+    state.unsubscribeFiles = onSnapshot(q, snap => {
+      cachedFiles = []; snap.forEach(d => cachedFiles.push({ id: d.id, ...d.data() }));
+      renderFileTreeFromState();
+    }, () => {
+      onSnapshot(collection(db, 'repos', repo.id, 'files'), s2 => {
+        cachedFiles = []; s2.forEach(d => cachedFiles.push({ id: d.id, ...d.data() }));
+        cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
+        renderFileTreeFromState();
+      });
+    });
+  }
+
+  window.renderFileTreeFromState = function(){
+    const el = $('fileTree');
+    if(!el) return;
+    const q = (state.searchFileQuery||'').toLowerCase();
+    const files = cachedFiles.filter(f => !q || f.name.toLowerCase().includes(q));
+    if(!cachedFiles.length){
+      el.innerHTML = `<div class="empty" style="padding:32px 16px;"><h3>Пустой репозиторий</h3><p>Загрузите первый файл.</p></div>`;
+      return;
+    }
+    if(!files.length){
+      el.innerHTML = `<div style="padding:24px;text-align:center;color:var(--fg-muted);">Не найдено</div>`;
+      return;
+    }
+    el.innerHTML = files.map(f => {
+      const isApk = f.name.toLowerCase().endsWith('.apk');
+      const isImage = /\.(png|jpe?g|gif|svg|webp)$/i.test(f.name);
+      const isText = !isApk && !isImage;
+      const icon = isApk
+        ? '<svg class="icon-apk" viewBox="0 0 16 16"><path d="M3.5 2h9A1.5 1.5 0 0 1 14 3.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 12.5v-9A1.5 1.5 0 0 1 3.5 2z"/></svg>'
+        : '<svg class="icon-file" viewBox="0 0 16 16"><path d="M2 1.75C2 .784 2.784 0 3.75 0h6.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 13.25 16h-9.5A1.75 1.75 0 0 1 2 14.25V1.75z"/></svg>';
+      const click = isText ? `onclick="openFileById('${f.id}')"` : '';
+      return `<div class="tree-row" ${click}>
+        <div class="name">${icon}<span>${escapeHtml(f.name)}</span></div>
+        <div class="commit-msg">${isApk ? '📦 ' : ''}${formatSize(f.size||0)}</div>
+        <div class="commit-time">${formatDate(f.createdAt)}</div>
+        <div class="row-actions">
+          <button onclick="event.stopPropagation();downloadFileDirect('${f.url}','${escapeHtml(f.name)}')" title="Скачать">⬇</button>
+          <button onclick="event.stopPropagation();deleteFile('${f.id}','${escapeHtml(f.path)}')" title="Удалить">🗑</button>
+        </div>
+      </div>`;
+    }).join('');
+  };
+
+  function formatSize(b){ if(b<1024) return b+' B'; if(b<1024*1024) return (b/1024).toFixed(1)+' KB'; return (b/(1024*1024)).toFixed(2)+' MB'; }
+  function formatDate(ts){ if(!ts||!ts.seconds) return '—'; return new Date(ts.seconds*1000).toLocaleDateString('ru-RU',{day:'numeric',month:'short',year:'numeric'}); }
+
+  window.handleDrop = function(ev){
+    ev.preventDefault();
+    $('dropzone').classList.remove('dragover');
+    const files = Array.from(ev.dataTransfer.files || []);
+    if(files.length) uploadFiles(files);
+  };
+  window.handleUpload = function(ev){
+    const files = Array.from(ev.target.files || []);
+    if(files.length) uploadFiles(files);
+    ev.target.value = '';
+  };
+  async function uploadFiles(files){
+    if(!state.currentRepo) return;
+    const repo = state.currentRepo;
+    $('uploadProgressWrap').style.display = 'block';
+    let total = files.length, done = 0;
+    for(const file of files){
+      $('uploadStatus').textContent = `Загрузка ${done+1}/${total}: ${file.name}`;
+      const path = `repos/${repo.id}/${Date.now()}_${file.name}`;
+      try {
+        const task = uploadBytesResumable(ref(storage, path), file);
+        await new Promise((res, rej) => {
+          task.on('state_changed', s => { $('uploadProgress').style.width = (s.bytesTransferred/s.totalBytes)*100 + '%'; }, rej, res);
+        });
+        const url = await getDownloadURL(task.snapshot.ref);
+        await addDoc(collection(db, 'repos', repo.id, 'files'), {
+          name: file.name, size: file.size, type: file.type||'',
+          url, path, uploadedBy: state.user.uid, createdAt: serverTimestamp()
+        });
+        done++;
+        $('uploadProgress').style.width = (done/total)*100 + '%';
+      } catch(e){ toast(e.message); }
+    }
+    $('uploadStatus').textContent = 'Готово: ' + done + '/' + total;
+    toast('Загружено файлов: ' + done);
+    setTimeout(() => { $('uploadProgressWrap').style.display = 'none'; }, 1500);
+  }
+
+  window.downloadFileDirect = function(url, name){
+    const a = document.createElement('a');
+    a.href = url; a.download = name; a.target = '_blank';
+    a.click();
+  };
+
+  window.downloadRepoZip = async function(){
+    if(!cachedFiles.length){ toast('Нет файлов'); return; }
+    toast('Упаковка ZIP...');
+    try {
+      const zip = new JSZip();
+      for(const f of cachedFiles){
+        try { const blob = await getBlob(ref(storage, f.path)); zip.file(f.name, blob); } catch(e){}
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(content);
+      a.download = state.currentRepo.name + '.zip';
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast('ZIP готов');
+    } catch(e){ toast(e.message); }
+  };
+
+  window.openFileById = async function(fileId){
+    try {
+      const d = await getDoc(doc(db, 'repos', state.currentRepo.id, 'files', fileId));
+      if(!d.exists()){ toast('Не найдено'); return; }
+      const data = { id: d.id, ...d.data() };
+      const blob = await getBlob(ref(storage, data.path));
+      state.currentFile = { ...data, content: await blob.text() };
+      renderView();
+      window.scrollTo({top:0, behavior:'smooth'});
+    } catch(e){ toast(e.message); }
+  };
+
+  function renderFileViewer(repo, file){
+    const lines = file.content.split('\n');
+    const linesHtml = lines.map((l,i) =>
+      `<div class="code-line"><span class="code-num">${i+1}</span><span class="code-txt">${highlight(l, file.name)||' '}</span></div>`
+    ).join('');
+    return `<div class="repo-body">
+      <div class="repo-content">
+        <div class="toolbar">
+          <button class="btn" onclick="closeFile()">← К файлам</button>
+          <div class="toolbar-spacer"></div>
+          <a class="btn" href="${file.url}" target="_blank" download="${escapeHtml(file.name)}">⬇ Скачать</a>
+          <button class="btn" onclick="copyContent()">📋 Копировать</button>
+          <button class="btn btn-danger" onclick="deleteFile('${file.id}','${escapeHtml(file.path)}')">🗑 Удалить</button>
+        </div>
+        <div class="file-view">
+          <div class="file-header"><div class="path">${escapeHtml(file.name)}</div><div style="color:var(--fg-muted);font-size:12px;">${formatSize(file.size)}</div></div>
+          <div class="code-view">${linesHtml}</div>
+        </div>
+      </div>
+      ${renderAbout()}
+    </div>`;
+  }
+
+  window.closeFile = () => { state.currentFile = null; renderView(); };
+  window.copyContent = () => { if(state.currentFile) navigator.clipboard.writeText(state.currentFile.content).then(()=>toast('Скопировано')).catch(()=>{}); };
+  window.deleteFile = async function(id, path){
+    if(!confirm('Удалить файл?')) return;
+    try {
+      try { await deleteObject(ref(storage, path)); } catch(e){}
+      await deleteDoc(doc(db, 'repos', state.currentRepo.id, 'files', id));
+      state.currentFile = null;
+      toast('Удалён');
+    } catch(e){ toast(e.message); }
+  };
+
+  function highlight(code, filename){
+    const ext = (filename.split('.').pop()||'').toLowerCase();
+    let html = escapeHtml(code);
+    if(['js','json','ts','jsx','tsx'].includes(ext)){
+      html = html.replace(/(\/\/[^\n]*)/g,'<span class="tok-com">$1</span>')
+        .replace(/('[^']*'|"[^"]*"|`[^`]*`)/g,'<span class="tok-str">$1</span>')
+        .replace(/\b(const|let|var|function|return|if|else|for|while|import|export|from|async|await|new|class|this|throw|try|catch)\b/g,'<span class="tok-kw">$1</span>');
+    } else if(['html','htm','xml'].includes(ext)){
+      html = html.replace(/(&lt;\/?[a-zA-Z][^&]*?&gt;)/g,'<span class="tok-tag">$1</span>');
+    } else if(['css','scss'].includes(ext)){
+      html = html.replace(/(\/\*[\s\S]*?\*\/)/g,'<span class="tok-com">$1</span>');
+    } else if(['md','markdown'].includes(ext)){
+      html = html.replace(/^(#{1,6} .*)$/gm,'<span class="tok-kw">$1</span>');
+    }
+    return html;
+  }
+
+  window.showProfile = function(){ closeDropdown(); state.view = 'profile'; state.currentFile = null; renderView(); };
+  window.showHome = function(){ closeDropdown(); state.view = 'repo'; state.currentFile = null; renderView(); };
+  window.showSettings = function(){ closeDropdown(); state.view = 'settings'; state.currentFile = null; renderView(); };
+  window.switchTab = function(tab){ state.currentTab = tab; state.currentFile = null; renderView(); };
+
+  function renderProfile(){
+    const p = state.profile || {};
+    const login = p.username || state.user.email.split('@')[0];
+    const initials = login.slice(0,2).toUpperCase();
+    const created = state.user.metadata?.creationTime
+      ? new Date(state.user.metadata.creationTime).toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'}) : '—';
+    const reposHtml = state.repos.length === 0
+      ? `<div style="color:var(--fg-muted);">Нет репозиториев.</div>`
+      : state.repos.map(r => `
+          <div class="repo-card">
+            <a class="name" href="#" onclick="selectRepo('${r.id}');return false;">${escapeHtml(r.name)}</a>
+            <div class="desc">${escapeHtml(r.desc||'Без описания')}</div>
+            <div class="meta">
+              <span><span class="dot" style="background:#f1e05a"></span>${escapeHtml(r.lang||'Other')}</span>
+              <span>⭐ ${r.stars||0}</span>
+              <span>⑂ ${r.forks||0}</span>
+              <span>${r.createdAt ? formatDate(r.createdAt) : ''}</span>
+            </div>
+          </div>`).join('');
+    $('mainContent').innerHTML = `
+      <div class="profile-grid">
+        <div>
+          <div class="profile-avatar">${initials}</div>
+          <div class="profile-name">${escapeHtml(login)}</div>
+          ${p.bio ? `<div class="profile-bio">${escapeHtml(p.bio)}</div>` : ''}
+          <div class="profile-meta">
+            ${p.company ? `<div>🏢 ${escapeHtml(p.company)}</div>` : ''}
+            ${p.location ? `<div>📍 ${escapeHtml(p.location)}</div>` : ''}
+            ${p.website ? `<div>🔗 <a href="${escapeHtml(p.website)}" target="_blank">${escapeHtml(p.website)}</a></div>` : ''}
+          </div>
+          <div class="profile-stats"><span><strong>${state.repos.length}</strong> репозиториев</span></div>
+          <div class="profile-join">📅 На сайте с ${created}</div>
+        </div>
+        <div>
+          <h2 style="font-size:16px;font-weight:600;margin-bottom:16px;">Репозитории</h2>
+          ${reposHtml}
+        </div>
+      </div>`;
+  }
+
+  function renderSettings(){
+    const p = state.profile || {};
+    $('mainContent').innerHTML = `
+      <h2 style="font-size:20px;font-weight:600;margin-bottom:20px;">Настройки</h2>
+
+      <div class="settings-section">
+        <h3>Настройки интерфейса</h3>
+        <div class="body">
+          <div class="settings-row">
+            <div>
+              <div class="label">Язык интерфейса</div>
+              <div class="hint">Русский</div>
+            </div>
+            <select class="settings-input" style="max-width:200px;" onchange="toast('Скоро')">
+              <option>Русский</option>
+              <option>English</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Публичный профиль</h3>
+        <div class="body">
+          <div class="settings-row">
+            <div><div class="label">Username</div><div class="hint">${escapeHtml(p.username||'—')}</div></div>
+            <button class="btn" onclick="openEditProfile('username')">Изменить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Bio</div><div class="hint">${escapeHtml(p.bio||'—')}</div></div>
+            <button class="btn" onclick="openEditProfile('bio')">Изменить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Company</div><div class="hint">${escapeHtml(p.company||'—')}</div></div>
+            <button class="btn" onclick="openEditProfile('company')">Изменить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Location</div><div class="hint">${escapeHtml(p.location||'—')}</div></div>
+            <button class="btn" onclick="openEditProfile('location')">Изменить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Website</div><div class="hint">${escapeHtml(p.website||'—')}</div></div>
+            <button class="btn" onclick="openEditProfile('website')">Изменить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Email</div><div class="hint">${escapeHtml(state.user.email)}</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-section">
+        <h3>Аккаунт</h3>
+        <div class="body">
+          <div class="settings-row">
+            <div><div class="label">Сменить пароль</div><div class="hint">Ссылка для сброса придёт на email</div></div>
+            <button class="btn" onclick="doResetPassword()">Отправить</button>
+          </div>
+          <div class="settings-row">
+            <div><div class="label">Выйти</div><div class="hint">Выйти из аккаунта</div></div>
+            <button class="btn" onclick="doLogout()">Выйти</button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  window.openEditProfile = function(field){
+    const p = state.profile || {};
+    const labels = { username: 'Username', bio: 'Bio', company: 'Company', location: 'Location', website: 'Website' };
+    const isTextarea = field === 'bio';
+    $('modalContent').innerHTML = `
+      <h2>${labels[field]}</h2>
+      <label>${labels[field]}</label>
+      ${isTextarea ? `<textarea id="editProfileValue">${escapeHtml(p[field]||'')}</textarea>` : `<input id="editProfileValue" value="${escapeHtml(p[field]||'')}">`}
+      <div class="modal-actions">
+        <button class="btn" onclick="closeModal()">Отмена</button>
+        <button class="btn btn-primary" onclick="saveProfile('${field}')">Сохранить</button>
+      </div>`;
+    $('modalOverlay').classList.add('show');
+    setTimeout(() => $('editProfileValue').focus(), 100);
+  };
+  window.saveProfile = async function(field){
+    const v = $('editProfileValue').value.trim();
+    try {
+      const update = {}; update[field] = v;
+      await updateDoc(doc(db, 'users', state.user.uid), update);
+      closeModal();
+      toast('Сохранено');
+    } catch(e){ toast(e.message); }
+  };
+  window.doResetPassword = async function(){
+    try { await sendPasswordResetEmail(auth, state.user.email); toast('Ссылка отправлена'); }
+    catch(e){ toast(e.message); }
+  };
+
+  $('searchInput').addEventListener('input', () => { if(state.view === 'repo') renderSidebar(); });
+  $('modalOverlay').addEventListener('click', e => { if(e.target.id === 'modalOverlay') closeModal(); });
+  document.addEventListener('keydown', e => { if(e.key === 'Escape'){ closeModal(); closeDropdown(); } });
+
+  // Показываем шапку сразу, ещё до Firebase auth
+  $('header').style.display = 'flex';
+  $('boot').style.display = 'none';
+  showAuthScreen();
+
+} catch (err) {
+  console.error(err);
+  const b = document.getElementById('boot');
+  b.innerHTML = '<span class="err">Ошибка загрузки: ' + (err.message||err) + '</span>';
+  b.style.display = 'block';
+}
+</script>
+</body>
+</html>
