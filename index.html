@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FileHub</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <style>
 :root{
   --canvas:#0d1117;--canvas-subtle:#161b22;--border:#30363d;--border-muted:#21262d;
@@ -192,7 +191,7 @@ button{font-family:inherit;font-size:14px;cursor:pointer}
       <button class="dropdown-item" onclick="showProfile()">👤 Your profile</button>
       <button class="dropdown-item" onclick="showSettings()">⚙ Settings</button>
       <hr>
-      <button class="dropdown-item danger" id="dropdownLogoutBtn" onclick="doLogout()">↪ Sign out</button>
+      <button class="dropdown-item danger" onclick="doLogout()">↪ Sign out</button>
     </div>
   </nav>
 </header>
@@ -250,7 +249,6 @@ try {
   const { initializeApp } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js");
   const { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged, sendPasswordResetEmail } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js");
   const { getFirestore, collection, addDoc, query, where, onSnapshot, serverTimestamp, deleteDoc, doc, getDocs, getDoc, setDoc, updateDoc } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js");
-  const { getStorage, ref, uploadBytesResumable, getDownloadURL, deleteObject, getBlob } = await import("https://www.gstatic.com/firebasejs/10.7.1/firebase-storage.js");
 
   const firebaseConfig = {
     apiKey: "AIzaSyCJ0ENFd9IYG3DOqqpoyxGmjKkv4QpwNmk",
@@ -264,7 +262,6 @@ try {
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
-  const storage = getStorage(app);
   const $ = id => document.getElementById(id);
 
   const state = {
@@ -362,8 +359,7 @@ try {
       'auth/invalid-email':'Неверный email','auth/user-not-found':'Не найден',
       'auth/wrong-password':'Неверный пароль','auth/invalid-credential':'Неверные данные',
       'auth/email-already-in-use':'Email уже используется','auth/weak-password':'Слабый пароль',
-      'auth/too-many-requests':'Слишком много попыток','storage/unauthorized':'Нет прав на Storage (проверьте Rules)',
-      'storage/canceled':'Загрузка отменена','storage/unknown':'Неизвестная ошибка Storage'
+      'auth/too-many-requests':'Слишком много попыток'
     };
     return m[code] || code;
   }
@@ -422,11 +418,7 @@ try {
     state.unsubscribeRepos = onSnapshot(q, snap => {
       state.repos = [];
       snap.forEach(d => state.repos.push({ id:d.id, ...d.data() }));
-      state.repos.sort((a,b) => {
-        const t1 = a.createdAt?.seconds || 0;
-        const t2 = b.createdAt?.seconds || 0;
-        return t2 - t1;
-      });
+      state.repos.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
       if(!state.currentRepo && state.repos.length) state.currentRepo = state.repos[0];
       else if(state.currentRepo) state.currentRepo = state.repos.find(r => r.id === state.currentRepo.id) || state.repos[0] || null;
       renderSidebar();
@@ -434,7 +426,7 @@ try {
       if(state.view === 'profile') renderProfile();
     }, err => {
       console.error('repos:', err);
-      toast('Ошибка загрузки репозиториев: ' + err.message);
+      toast('Ошибка репозиториев: ' + err.message);
     });
   }
 
@@ -475,7 +467,6 @@ try {
         branch:'main', stars:0, forks:0, topics:[],
         createdAt: serverTimestamp()
       });
-      // Локально добавляем сразу, чтобы UI обновился мгновенно
       const newRepo = {
         id: ref_.id, owner: state.user.uid,
         ownerUsername: state.profile?.username || state.user.email.split('@')[0],
@@ -493,7 +484,6 @@ try {
       renderSidebar();
       renderView();
       toast('Создан: ' + name);
-      // И перезапускаем слушатель для синхронизации с сервером
       setTimeout(loadRepos, 500);
     } catch(e){
       console.error(e);
@@ -512,8 +502,6 @@ try {
     try {
       const filesSnap = await getDocs(collection(db,'repos',state.currentRepo.id,'files'));
       for(const f of filesSnap.docs){
-        const fd = f.data();
-        if(fd.path){ try { await deleteObject(ref(storage, fd.path)); } catch(e){} }
         await deleteDoc(doc(db,'repos',state.currentRepo.id,'files',f.id));
       }
       await deleteDoc(doc(db,'repos',state.currentRepo.id));
@@ -613,14 +601,12 @@ try {
           <input class="gh-search" id="fileSearchInput" style="max-width:200px;" placeholder="Поиск файлов..." value="${escapeHtml(state.searchFileQuery)}" oninput="state.searchFileQuery=this.value; renderFileTreeFromState();">
           <div class="toolbar-spacer"></div>
           <input type="file" id="uploadInput" style="display:none;" multiple onchange="handleUpload(event)">
-          <input type="file" id="uploadFolderInput" style="display:none;" webkitdirectory multiple onchange="handleUpload(event)">
           <button class="btn btn-primary" onclick="document.getElementById('uploadInput').click()">⬆ Загрузить файлы</button>
-          <button class="btn" onclick="document.getElementById('uploadFolderInput').click()">📁 Папка</button>
           <button class="btn" onclick="downloadRepoZip()">⬇ ZIP</button>
         </div>
         <div class="dropzone" id="dropzone" onclick="document.getElementById('uploadInput').click()" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')" ondrop="handleDrop(event)">
           <svg viewBox="0 0 16 16"><path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/><path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/></svg>
-          <p>Перетащите файлы сюда или нажмите для выбора</p>
+          <p>Перетащите файлы сюда или нажмите для выбора<br><small>Максимум ~700 КБ на файл (Firestore лимит 1 МБ)</small></p>
         </div>
         <div id="uploadProgressWrap" style="display:none;margin-bottom:12px;background:var(--canvas-subtle);border:1px solid var(--border);border-radius:var(--radius);padding:10px 16px;">
           <div style="font-size:13px;margin-bottom:6px;" id="uploadStatus">Загрузка...</div>
@@ -642,16 +628,7 @@ try {
       snap.forEach(d => state.cachedFiles.push({ id:d.id, ...d.data() }));
       state.cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
       renderFileTreeFromState();
-    }, err => {
-      console.error('files:', err);
-      // fallback без сортировки
-      onSnapshot(collection(db,'repos',repo.id,'files'), s2 => {
-        state.cachedFiles = [];
-        s2.forEach(d => state.cachedFiles.push({ id:d.id, ...d.data() }));
-        state.cachedFiles.sort((a,b) => (b.createdAt?.seconds||0) - (a.createdAt?.seconds||0));
-        renderFileTreeFromState();
-      });
-    });
+    }, err => { console.error('files:', err); });
   }
 
   window.renderFileTreeFromState = function(){
@@ -680,8 +657,8 @@ try {
         <div class="commit-msg">${isApk ? '📦 ' : ''}${formatSize(f.size||0)}</div>
         <div class="commit-time">${formatDate(f.createdAt)}</div>
         <div class="row-actions">
-          <button onclick="event.stopPropagation();downloadFileDirect('${f.url}','${escapeHtml(f.name)}')" title="Скачать">⬇</button>
-          <button onclick="event.stopPropagation();deleteFile('${f.id}','${escapeHtml(f.path)}')" title="Удалить">🗑</button>
+          <button onclick="event.stopPropagation();downloadFileById('${f.id}','${escapeHtml(f.name)}')" title="Скачать">⬇</button>
+          <button onclick="event.stopPropagation();deleteFile('${f.id}')" title="Удалить">🗑</button>
         </div>
       </div>`;
     }).join('');
@@ -702,6 +679,15 @@ try {
     ev.target.value = '';
   };
 
+  function readAsDataURL(file){
+    return new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(file);
+    });
+  }
+
   async function uploadFiles(files){
     if(!state.currentRepo) return;
     const repo = state.currentRepo;
@@ -709,44 +695,59 @@ try {
     let total = files.length, done = 0;
     for(const file of files){
       $('uploadStatus').textContent = `Загрузка ${done+1}/${total}: ${file.name}`;
-      const path = `repos/${repo.id}/${Date.now()}_${file.name}`;
+      // Firestore лимит ~1 МБ на документ; base64 +33%
+      if(file.size > 700 * 1024){
+        toast(`«${file.name}» слишком большой (${formatSize(file.size)}). Без Storage максимум ~700 КБ.`);
+        done++;
+        $('uploadProgress').style.width = (done/total)*100 + '%';
+        continue;
+      }
       try {
-        const task = uploadBytesResumable(ref(storage, path), file);
-        await new Promise((res, rej) => {
-          let timeout = setTimeout(() => rej(new Error('Таймаут 90с — проверьте CORS на Storage')), 90000);
-          task.on('state_changed',
-            s => { $('uploadProgress').style.width = (s.bytesTransferred/s.totalBytes)*100 + '%'; },
-            e => { clearTimeout(timeout); rej(e); },
-            () => { clearTimeout(timeout); res(); }
-          );
-        });
-        const url = await getDownloadURL(task.snapshot.ref);
+        const dataUrl = await readAsDataURL(file);
         await addDoc(collection(db,'repos',repo.id,'files'), {
-          name: file.name, size: file.size, type: file.type||'',
-          url, path, uploadedBy: state.user.uid, createdAt: serverTimestamp()
+          name: file.name,
+          size: file.size,
+          type: file.type||'',
+          dataUrl,
+          uploadedBy: state.user.uid,
+          createdAt: serverTimestamp()
         });
         done++;
         $('uploadProgress').style.width = (done/total)*100 + '%';
       } catch(e){
         toast('Ошибка ' + file.name + ': ' + (e.message || e.code));
         console.error(e);
+        done++;
       }
     }
     $('uploadStatus').textContent = 'Готово: ' + done + '/' + total;
-    toast('Загружено: ' + done);
+    toast('Обработано: ' + done + '/' + total);
     setTimeout(() => { $('uploadProgressWrap').style.display = 'none'; }, 1500);
   }
 
-  window.downloadFileDirect = function(url, name){
-    const a = document.createElement('a'); a.href = url; a.download = name; a.target = '_blank'; a.click();
+  window.downloadFileById = async function(id, name){
+    try {
+      const d = await getDoc(doc(db,'repos',state.currentRepo.id,'files',id));
+      if(!d.exists()){ toast('Не найдено'); return; }
+      const data = d.data();
+      if(!data.dataUrl){ toast('Нет содержимого'); return; }
+      const a = document.createElement('a');
+      a.href = data.dataUrl;
+      a.download = name;
+      a.click();
+    } catch(e){ toast(e.message); }
   };
+
   window.downloadRepoZip = async function(){
     if(!state.cachedFiles.length){ toast('Нет файлов'); return; }
     toast('Упаковка ZIP...');
     try {
       const zip = new JSZip();
       for(const f of state.cachedFiles){
-        try { const blob = await getBlob(ref(storage, f.path)); zip.file(f.name, blob); } catch(e){}
+        if(!f.dataUrl) continue;
+        // dataUrl вида "data:type;base64,XXXX"
+        const base64 = f.dataUrl.split(',')[1] || '';
+        zip.file(f.name, base64, { base64: true });
       }
       const content = await zip.generateAsync({ type:'blob' });
       const a = document.createElement('a');
@@ -762,15 +763,27 @@ try {
       const d = await getDoc(doc(db,'repos',state.currentRepo.id,'files',fileId));
       if(!d.exists()){ toast('Не найдено'); return; }
       const data = { id:d.id, ...d.data() };
-      const blob = await getBlob(ref(storage, data.path));
-      state.currentFile = { ...data, content: await blob.text() };
+      if(!data.dataUrl){ toast('Нет содержимого'); return; }
+      // Если dataUrl — text/plain, извлечём текст
+      let content = '';
+      if(data.dataUrl.startsWith('data:')){
+        const parts = data.dataUrl.split(',');
+        const isBase64 = parts[0].includes(';base64');
+        if(isBase64){
+          try { content = decodeURIComponent(escape(atob(parts[1]))); }
+          catch(e){ content = atob(parts[1]); }
+        } else {
+          content = decodeURIComponent(parts[1]);
+        }
+      }
+      state.currentFile = { ...data, content };
       renderView();
       window.scrollTo({top:0, behavior:'smooth'});
     } catch(e){ toast(e.message); }
   };
 
   function renderFileViewer(repo, file){
-    const lines = file.content.split('\n');
+    const lines = String(file.content||'').split('\n');
     const linesHtml = lines.map((l,i) =>
       `<div class="code-line"><span class="code-num">${i+1}</span><span class="code-txt">${escapeHtml(l)||' '}</span></div>`
     ).join('');
@@ -779,9 +792,9 @@ try {
         <div class="toolbar">
           <button class="btn" onclick="closeFile()">← К файлам</button>
           <div class="toolbar-spacer"></div>
-          <a class="btn" href="${file.url}" target="_blank" download="${escapeHtml(file.name)}">⬇ Скачать</a>
+          <button class="btn" onclick="downloadFileById('${file.id}','${escapeHtml(file.name)}')">⬇ Скачать</button>
           <button class="btn" onclick="copyContent()">📋 Копировать</button>
-          <button class="btn btn-danger" onclick="deleteFile('${file.id}','${escapeHtml(file.path)}')">🗑 Удалить</button>
+          <button class="btn btn-danger" onclick="deleteFile('${file.id}')">🗑 Удалить</button>
         </div>
         <div class="file-view">
           <div class="file-header"><div class="path">${escapeHtml(file.name)}</div><div style="color:var(--fg-muted);font-size:12px;">${formatSize(file.size)}</div></div>
@@ -794,10 +807,9 @@ try {
 
   window.closeFile = () => { state.currentFile = null; renderView(); };
   window.copyContent = () => { if(state.currentFile) navigator.clipboard.writeText(state.currentFile.content).then(()=>toast('Скопировано')).catch(()=>{}); };
-  window.deleteFile = async function(id, path){
+  window.deleteFile = async function(id){
     if(!confirm('Удалить файл?')) return;
     try {
-      try { await deleteObject(ref(storage, path)); } catch(e){}
       await deleteDoc(doc(db,'repos',state.currentRepo.id,'files',id));
       state.currentFile = null; toast('Удалён');
     } catch(e){ toast(e.message); }
@@ -870,14 +882,10 @@ try {
     ev.target.value = '';
     if(!file || !state.user) return;
     if(!file.type.startsWith('image/')){ toast('Только изображения'); return; }
-    if(file.size > 5*1024*1024){ toast('Максимум 5 МБ'); return; }
-    toast('Загрузка аватара...');
+    if(file.size > 500*1024){ toast('Аватар максимум 500 КБ'); return; }
     try {
-      const path = `avatars/${state.user.uid}_${Date.now()}_${file.name}`;
-      const task = uploadBytesResumable(ref(storage, path), file);
-      await new Promise((res, rej) => task.on('state_changed', null, rej, res));
-      const url = await getDownloadURL(task.snapshot.ref);
-      await updateDoc(doc(db,'users',state.user.uid), { avatarUrl: url });
+      const dataUrl = await readAsDataURL(file);
+      await updateDoc(doc(db,'users',state.user.uid), { avatarUrl: dataUrl });
       toast('Аватар обновлён');
     } catch(e){ toast('Ошибка: ' + (e.message||e.code)); }
   };
@@ -887,14 +895,10 @@ try {
     ev.target.value = '';
     if(!file || !state.user) return;
     if(!file.type.startsWith('image/')){ toast('Только изображения'); return; }
-    if(file.size > 10*1024*1024){ toast('Максимум 10 МБ'); return; }
-    toast('Загрузка баннера...');
+    if(file.size > 600*1024){ toast('Баннер максимум 600 КБ'); return; }
     try {
-      const path = `banners/${state.user.uid}_${Date.now()}_${file.name}`;
-      const task = uploadBytesResumable(ref(storage, path), file);
-      await new Promise((res, rej) => task.on('state_changed', null, rej, res));
-      const url = await getDownloadURL(task.snapshot.ref);
-      await updateDoc(doc(db,'users',state.user.uid), { bannerUrl: url });
+      const dataUrl = await readAsDataURL(file);
+      await updateDoc(doc(db,'users',state.user.uid), { bannerUrl: dataUrl });
       toast('Баннер обновлён');
     } catch(e){ toast('Ошибка: ' + (e.message||e.code)); }
   };
